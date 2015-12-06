@@ -10,6 +10,37 @@ HBRUSH bgBrush;
 HPEN linePen;
 byte hasPaintedGenInfo = 0;
 
+#define currentPathMaxLen 1024
+#define userInputMaxLen 256
+int currentPathLen = 0;
+char userInputCarat = 0;
+char currentPathStr[currentPathMaxLen];
+char userInput[userInputMaxLen];
+
+//This was my general overview screen draw code
+// {
+// 	int text_x = 12;
+// 	int text_y = 12;
+// 	char monitorX[4];
+// 	char monitorY[4];
+// 	sprintf(monitorX, "%lu", screenX);
+// 	sprintf(monitorY, "%lu", screenY);
+// 	const char bufBtwnLines = 4;
+
+// 	SetTextColor(hdc, fontColor);
+// 	SelectObject(hdc, mainFont);
+// 	TextOut(hdc, text_x, text_y, "Welcome to TomShell v0.1", 24);
+// 	text_y += 12 * 2 + bufBtwnLines;
+
+// 	SelectObject(hdc, boldFont);
+// 	TextOut(hdc, text_x, text_y, "SYSTEM", 6);
+
+// 	SelectObject(hdc, linePen);
+// 	MoveToEx(hdc, text_x + 6 * 12, text_y + 12, NULL);
+// 	LineTo(hdc, screenX - 6, text_y + 12);
+// 	text_y += 12 + bufBtwnLines;
+// }
+
 void DisplayError(const char* message)
 {
 	MessageBox(NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK);
@@ -38,28 +69,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			SetBkColor(hdc, bgColor);
 			Rectangle(hdc, 0, 0, screenX, screenY);
 
+	        //File viewing/editting view painting
 			{
-				int text_x = 12;
-				int text_y = 12;
-				char monitorX[4];
-				char monitorY[4];
-				sprintf(monitorX, "%lu", screenX);
-				sprintf(monitorY, "%lu", screenY);
-				const char bufBtwnLines = 4;
-
-				SetTextColor(hdc, fontColor);
+				HANDLE fileHandle;
+				WIN32_FIND_DATA data;
 				SelectObject(hdc, mainFont);
-				TextOut(hdc, text_x, text_y, "Welcome to TomShell v0.1", 24);
-				text_y += 12 * 2 + bufBtwnLines;
+				SetTextColor(hdc, fontColor);
+				int paintStart_x = 12;
+				int paintStart_y = 12;
 
-				SelectObject(hdc, boldFont);
-				TextOut(hdc, text_x, text_y, "SYSTEM", 6);
+				TextOut(hdc, paintStart_x, paintStart_y, currentPathStr, currentPathLen + 1);
+				paintStart_y += 12 + 4;
 
-				SelectObject(hdc, linePen);
-				MoveToEx(hdc, text_x + 6 * 12, text_y + 12, NULL);
-				LineTo(hdc, screenX - 6, text_y + 12);
-				text_y += 12 + bufBtwnLines;
-		    }
+				char pathSearch[currentPathMaxLen];
+				strcpy(pathSearch, currentPathStr);
+				strcat(pathSearch, "/*");
+
+				fileHandle = FindFirstFile(pathSearch, &data);
+				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
+				paintStart_y += 12 + 4;
+				FindNextFile(fileHandle, &data);
+				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
+				paintStart_y += 12 + 4;
+				FindNextFile(fileHandle, &data);
+				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
+				paintStart_y += 12 + 4;
+				FindNextFile(fileHandle, &data);
+				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
+
+				FindClose(fileHandle);
+			}
 
 			SelectObject(hdc, oldFont);
 			SetTextColor(hdc, RGB(0,0,0));
@@ -90,6 +129,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	screenY = GetSystemMetrics(SM_CYSCREEN);
 	bgBrush = CreateSolidBrush(bgColor);
 	linePen = CreatePen(PS_SOLID, 1, fontColor);
+	memset(userInput, 0, userInputMaxLen);
+	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr);
 
 	wc.cbSize = sizeof(WNDCLASSEX);
 	wc.style = 0;
@@ -137,10 +178,3 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 }
 
 //reminder: how to get working directory.
-/*DWORD bufferLength = 256;
-DWORD directoryStringLength;
-TCHAR directoryBuffer [256];
-
-directoryStringLength = GetCurrentDirectory(bufferLength, &directoryBuffer);
-
-printf("%s", directoryBuffer);*/
