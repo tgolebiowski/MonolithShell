@@ -25,6 +25,9 @@ char fileNames [1024];
 char userInputCarat = 0;
 char userInput[userInputMaxLen];
 
+int paintStart_x;
+int paintStart_y;
+
 //This was my general overview screen draw code
 // {
 // 	int text_x = 12;
@@ -54,16 +57,29 @@ void DisplayError(const char* message)
 	MessageBox(NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK);
 }
 
-void DrawUnderlinedTitle(HDC* hdc, int* drawCursorX, int* drawCursorY, char* text, int textlen)
+void DrawUnderlinedTitle(HDC* hdc, char* text, int textlen)
 {
 	HFONT oldFont = SelectObject(*hdc, boldFont);
-	TextOut(*hdc, *drawCursorX, *drawCursorY, text, textlen);
-	*drawCursorY += 12 + 4;
+	TextOut(*hdc, paintStart_x, paintStart_y, text, textlen);
+	paintStart_y += 12 + 4;
 	SelectObject(*hdc, linePen);
-	MoveToEx(*hdc, *drawCursorX, *drawCursorY, NULL);
-	LineTo(*hdc, screenX - 12, *drawCursorY);
+	MoveToEx(*hdc, paintStart_x, paintStart_y, NULL);
+	LineTo(*hdc, screenX - 12, paintStart_y);
 	SelectObject(*hdc, oldFont);
-	*drawCursorY += 8;
+	paintStart_y += 8;
+}
+
+void DrawTextList(HDC* hdc, char* text, char* lineLengths, char lineCount)
+{
+	int i;
+	int startIndex = 0;
+	for(i = 0; i < lineCount; i++)
+	{
+		int len = lineLengths[i];
+		TextOut(*hdc, paintStart_x, paintStart_y, &text[startIndex], len);
+		startIndex += len;
+		paintStart_y += 12 + 4;
+	}
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -93,10 +109,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			{
 				SelectObject(hdc, mainFont);
 				SetTextColor(hdc, fontColor);
-				int paintStart_x = 12;
-				int paintStart_y = 12;
+				paintStart_x = 12;
+				paintStart_y = 12;
 
-	            //draw info regarding current dir
+	            //draw info about current directory
 	            SelectObject(hdc, boldFont);
 				TextOut(hdc, paintStart_x, paintStart_y, "Current Directory:", 18);
 				paintStart_x += 18 * 12 + 4;
@@ -109,33 +125,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				MoveToEx(hdc, paintStart_x, paintStart_y, NULL);
 				LineTo(hdc, screenX - 12, paintStart_y);
 				SelectObject(hdc, mainFont);
+
 				paintStart_y += 14;
 
-				DrawUnderlinedTitle(&hdc, &paintStart_x, &paintStart_y, "Sub Directories", 16);
-
 				//draw sub directories in current directory
-				int i;
-				int dirNameStartIndex = 0;
-				for(i = 0; i < dirCount; i++)
-				{
-					int dirNameLen = dirNameLengths[i];
-					TextOut(hdc, paintStart_x, paintStart_y, &dirNames[dirNameStartIndex], dirNameLen);
-					dirNameStartIndex += dirNameLen;
-					paintStart_y += 12 + 4;
-				}
+				DrawUnderlinedTitle(&hdc, "Sub Directories", 16);
+				DrawTextList(&hdc, dirNames, dirNameLengths, dirCount);
 
-				paintStart_y += 12;
-				DrawUnderlinedTitle(&hdc, &paintStart_x, &paintStart_y, "Files", 6);
+				paintStart_y += 14;
 
 	            //draw file names in current directory
-				int fileNameStartIndex = 0;
-				for(i = 0; i < fileCount; i++)
-				{
-					int fileNameLen = fileNameLengths[i];
-					TextOut(hdc, paintStart_x, paintStart_y, &fileNames[fileNameStartIndex], fileNameLen);
-					fileNameStartIndex += fileNameLen;
-					paintStart_y += 12 + 4;
-				}
+				DrawUnderlinedTitle(&hdc, "Files", 6);
+				DrawTextList(&hdc, fileNames, fileNameLengths, fileCount);
 			}
 
 			SelectObject(hdc, oldFont);
