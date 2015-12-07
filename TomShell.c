@@ -14,8 +14,11 @@ byte hasPaintedGenInfo = 0;
 #define userInputMaxLen 256
 int currentPathLen = 0;
 char userInputCarat = 0;
+char fileCount = 0;
+UINT fileNameLengths[256];
 char currentPathStr[currentPathMaxLen];
 char userInput[userInputMaxLen];
+char fileNames [1024];
 
 //This was my general overview screen draw code
 // {
@@ -71,33 +74,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 	        //File viewing/editting view painting
 			{
-				HANDLE fileHandle;
-				WIN32_FIND_DATA data;
-				SelectObject(hdc, mainFont);
-				SetTextColor(hdc, fontColor);
 				int paintStart_x = 12;
 				int paintStart_y = 12;
+				SelectObject(hdc, mainFont);
+				SetTextColor(hdc, fontColor);
 
 				TextOut(hdc, paintStart_x, paintStart_y, currentPathStr, currentPathLen + 1);
 				paintStart_y += 12 + 4;
 
-				char pathSearch[currentPathMaxLen];
-				strcpy(pathSearch, currentPathStr);
-				strcat(pathSearch, "/*");
-
-				fileHandle = FindFirstFile(pathSearch, &data);
-				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
-				paintStart_y += 12 + 4;
-				FindNextFile(fileHandle, &data);
-				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
-				paintStart_y += 12 + 4;
-				FindNextFile(fileHandle, &data);
-				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
-				paintStart_y += 12 + 4;
-				FindNextFile(fileHandle, &data);
-				TextOut(hdc, paintStart_x, paintStart_y, data.cFileName, strlen(data.cFileName));
-
-				FindClose(fileHandle);
+				int i;
+				int fileNameStartIndex = 0;
+				for(i = 0; i < fileCount; i++)
+				{
+					int fileNameLen = fileNameLengths[i];
+					TextOut(hdc, paintStart_x, paintStart_y, &fileNames[fileNameStartIndex], fileNameLen);
+					fileNameStartIndex += fileNameLen;
+					paintStart_y += 12 + 4;
+				}
 			}
 
 			SelectObject(hdc, oldFont);
@@ -130,7 +123,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	bgBrush = CreateSolidBrush(bgColor);
 	linePen = CreatePen(PS_SOLID, 1, fontColor);
 	memset(userInput, 0, userInputMaxLen);
+	memset(fileNameLengths, 0, 256);
 	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr);
+	//get all files in dir and cache
+	{
+		HANDLE fileHandle;
+		WIN32_FIND_DATA data;
+		char* typeHead = &fileNames;
+		char pathSearch[currentPathMaxLen];
+		strcpy(pathSearch, currentPathStr);
+		strcat(pathSearch, "/*");
+
+		fileCount = 0;
+		typeHead = &fileNames;
+		fileHandle = FindFirstFile(pathSearch, &data);
+		do{
+			strcpy(typeHead, data.cFileName);
+			int fileNameLen = strlen(data.cFileName);
+			fileNameLengths[fileCount] = fileNameLen;
+			typeHead += fileNameLen;
+			fileCount++;
+		} while(FindNextFile(fileHandle, &data));
+		FindClose(fileHandle);
+	}
 
 	wc.cbSize = sizeof(WNDCLASSEX);
 	wc.style = 0;
