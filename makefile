@@ -13,16 +13,16 @@ LFLAGS = -LLibs
 LIBS = -lGdi32 
 
 #source files
-SRCS = TomShell.c
+SRCS = MonolithShell.c
 
 #object files
 OBJS = $(SRCS:.c=.o)
 
 #exe file name
-MAIN = TomShell
+MAIN = MonolithShell
 
 all: $(MAIN)
-	@echo TomShell compilation complete.
+	@echo MonolithShell compilation complete.
 
 $(MAIN) : $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
@@ -31,4 +31,4 @@ $(MAIN) : $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	$(RM) *.o *~ $(MAIN)
+	$(RM) *.o *~

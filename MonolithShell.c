@@ -2,23 +2,28 @@
 #include <stdio.h>
 #include <windows.h>
 
-const char g_szClassName[] = "TomsWindowClass";
+const char g_szClassName[] = "MonolithShellClass";
 DWORD screenX, screenY;
 COLORREF bgColor, fontColor;
 HFONT mainFont, boldFont;
 HBRUSH bgBrush;
 HPEN linePen;
-byte hasPaintedGenInfo = 0;
 
 #define currentPathMaxLen 1024
 #define userInputMaxLen 256
 int currentPathLen = 0;
-char userInputCarat = 0;
-char fileCount = 0;
-UINT fileNameLengths[256];
 char currentPathStr[currentPathMaxLen];
-char userInput[userInputMaxLen];
+
+char dirCount = 0;
+char dirNameLengths[128];
+char dirNames[1024];
+
+char fileCount = 0;
+char fileNameLengths[128];
 char fileNames [1024];
+
+char userInputCarat = 0;
+char userInput[userInputMaxLen];
 
 //This was my general overview screen draw code
 // {
@@ -32,7 +37,7 @@ char fileNames [1024];
 
 // 	SetTextColor(hdc, fontColor);
 // 	SelectObject(hdc, mainFont);
-// 	TextOut(hdc, text_x, text_y, "Welcome to TomShell v0.1", 24);
+// 	TextOut(hdc, text_x, text_y, "Welcome to MonolithShell v0.1", 24);
 // 	text_y += 12 * 2 + bufBtwnLines;
 
 // 	SelectObject(hdc, boldFont);
@@ -47,6 +52,18 @@ char fileNames [1024];
 void DisplayError(const char* message)
 {
 	MessageBox(NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK);
+}
+
+void DrawUnderlinedTitle(HDC* hdc, int* drawCursorX, int* drawCursorY, char* text, int textlen)
+{
+	HFONT oldFont = SelectObject(*hdc, boldFont);
+	TextOut(*hdc, *drawCursorX, *drawCursorY, text, textlen);
+	*drawCursorY += 12 + 4;
+	SelectObject(*hdc, linePen);
+	MoveToEx(*hdc, *drawCursorX, *drawCursorY, NULL);
+	LineTo(*hdc, screenX - 12, *drawCursorY);
+	SelectObject(*hdc, oldFont);
+	*drawCursorY += 8;
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -72,17 +89,45 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			SetBkColor(hdc, bgColor);
 			Rectangle(hdc, 0, 0, screenX, screenY);
 
-	        //File viewing/editting view painting
+	        //File viewing/mgmt mode painting
 			{
-				int paintStart_x = 12;
-				int paintStart_y = 12;
 				SelectObject(hdc, mainFont);
 				SetTextColor(hdc, fontColor);
+				int paintStart_x = 12;
+				int paintStart_y = 12;
 
+	            //draw info regarding current dir
+	            SelectObject(hdc, boldFont);
+				TextOut(hdc, paintStart_x, paintStart_y, "Current Directory:", 18);
+				paintStart_x += 18 * 12 + 4;
+				SelectObject(hdc, mainFont);
 				TextOut(hdc, paintStart_x, paintStart_y, currentPathStr, currentPathLen + 1);
 				paintStart_y += 12 + 4;
+				paintStart_x = 12;
 
+				SelectObject(hdc, linePen);
+				MoveToEx(hdc, paintStart_x, paintStart_y, NULL);
+				LineTo(hdc, screenX - 12, paintStart_y);
+				SelectObject(hdc, mainFont);
+				paintStart_y += 14;
+
+				DrawUnderlinedTitle(&hdc, &paintStart_x, &paintStart_y, "Sub Directories", 16);
+
+				//draw sub directories in current directory
 				int i;
+				int dirNameStartIndex = 0;
+				for(i = 0; i < dirCount; i++)
+				{
+					int dirNameLen = dirNameLengths[i];
+					TextOut(hdc, paintStart_x, paintStart_y, &dirNames[dirNameStartIndex], dirNameLen);
+					dirNameStartIndex += dirNameLen;
+					paintStart_y += 12 + 4;
+				}
+
+				paintStart_y += 12;
+				DrawUnderlinedTitle(&hdc, &paintStart_x, &paintStart_y, "Files", 6);
+
+	            //draw file names in current directory
 				int fileNameStartIndex = 0;
 				for(i = 0; i < fileCount; i++)
 				{
@@ -114,35 +159,50 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	MSG msg;
 
 	//Initialize my Globals
+	memset(userInput, 0, userInputMaxLen);
+	memset(fileNameLengths, 0, 256);
+	memset(fileNames, 0, 1024);
+	screenX = GetSystemMetrics(SM_CXSCREEN);
+	screenY = GetSystemMetrics(SM_CYSCREEN);
+	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr);
 	bgColor = RGB(49, 39, 50);
 	fontColor = RGB(5, 239, 64);
 	mainFont = CreateFont(14, 0, 0, 0, FW_THIN, 0, 0, 0, 0, 0, 0, 2, 0, "OCR A Extended");
 	boldFont = CreateFont(16, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 2, 0, "OCR A Extended");
-	screenX = GetSystemMetrics(SM_CXSCREEN);
-	screenY = GetSystemMetrics(SM_CYSCREEN);
 	bgBrush = CreateSolidBrush(bgColor);
 	linePen = CreatePen(PS_SOLID, 1, fontColor);
-	memset(userInput, 0, userInputMaxLen);
-	memset(fileNameLengths, 0, 256);
-	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr);
-	//get all files in dir and cache
+
+	//get all files in directory and cache for later
 	{
 		HANDLE fileHandle;
 		WIN32_FIND_DATA data;
-		char* typeHead = &fileNames;
+		char* fileTypeHead = &fileNames;
+		char* dirTypeHead = &dirNames;
 		char pathSearch[currentPathMaxLen];
 		strcpy(pathSearch, currentPathStr);
 		strcat(pathSearch, "/*");
 
 		fileCount = 0;
-		typeHead = &fileNames;
+		dirCount = 0;
 		fileHandle = FindFirstFile(pathSearch, &data);
 		do{
-			strcpy(typeHead, data.cFileName);
 			int fileNameLen = strlen(data.cFileName);
-			fileNameLengths[fileCount] = fileNameLen;
-			typeHead += fileNameLen;
-			fileCount++;
+
+			if((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+			{
+				strcpy(dirTypeHead, data.cFileName);
+				dirNameLengths[dirCount] = fileNameLen;
+				dirTypeHead += fileNameLen;
+				dirCount++;
+			}
+			else
+			{
+				strcpy(fileTypeHead, data.cFileName);
+				fileNameLengths[fileCount] = fileNameLen;
+				fileTypeHead += fileNameLen;
+				fileCount++;
+			}
+
 		} while(FindNextFile(fileHandle, &data));
 		FindClose(fileHandle);
 	}
@@ -166,16 +226,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 0;
 	}
 
-	hwnd = CreateWindowEx(0, g_szClassName, "THE TITLE I DON'T WANT", WS_BORDER, 0, 0, screenX, screenY, NULL, NULL, hInstance, NULL);
+	hwnd = CreateWindowEx(0, g_szClassName, "title", WS_BORDER, 0, 0, screenX, screenY, NULL, NULL, hInstance, NULL);
 	SetWindowLong(hwnd, GWL_STYLE, 0);
-
-	//if(hwnd == NULL)
-	//{
-	//	DisplayError("Window Creation Failed");
-	//	return 0;
-	//}
-
-	//DeleteObject(SelectObject(hdc, font));
 
 	//using SW_SHOWNORMAL rather than nCmdShow
 	ShowWindow(hwnd, SW_SHOWNORMAL);
@@ -188,8 +240,4 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	}
 
 	return msg.wParam;
-
-	return 0;
 }
-
-//reminder: how to get working directory.
