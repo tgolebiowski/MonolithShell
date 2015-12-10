@@ -1,13 +1,14 @@
-#include <stdlib.h>
 #include <stdio.h>
 #include <windows.h>
+#include <conio.h>
 
-const char g_szClassName[] = "MonolithShellClass";
+const char g_szClassName[] = "MonolithShell";
 DWORD screenX, screenY;
 COLORREF bgColor, fontColor;
 HFONT mainFont, boldFont;
 HBRUSH bgBrush;
 HPEN linePen;
+HWND hwnd;
 
 #define currentPathMaxLen 1024
 #define userInputMaxLen 256
@@ -15,18 +16,21 @@ int currentPathLen = 0;
 char currentPathStr[currentPathMaxLen];
 
 char dirCount = 0;
-char dirNameLengths[128];
-char dirNames[1024];
+char dirNameLengths[64];
+char dirNames[4 * 1024];
 
 char fileCount = 0;
-char fileNameLengths[128];
-char fileNames [1024];
+char fileNameLengths[64];
+char fileNames [4 * 1024];
 
 char userInputCarat = 0;
 char userInput[userInputMaxLen];
 
+RECT consoleRect;
+char repaintConsoleOnly;
 int paintStart_x;
 int paintStart_y;
+int consolePaintStart_y;
 
 //This was my general overview screen draw code
 // {
@@ -84,6 +88,7 @@ void DrawTextList(HDC* hdc, char* text, char* lineLengths, char lineCount)
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+
 	switch(msg)
 	{
 		case WM_CLOSE:
@@ -93,6 +98,43 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
+
+		case WM_CHAR:
+		{
+			char keypress;
+
+			if(userInputCarat >= 254)
+			{
+				break;
+				repaintConsoleOnly = 0;
+			} 
+
+			keypress = wParam;
+
+			switch(keypress)
+			{
+				case 8:
+			//backspace
+				userInput[userInputCarat] = 0;
+				userInputCarat--;
+				break;
+				case 13:
+				{
+					int i;
+					for(i = 0; i < userInputCarat; i++)
+						userInput[i] = 0;
+					userInputCarat = 0;
+					break;
+				}
+				default:
+				userInput[userInputCarat] = keypress;
+				userInputCarat++;
+				break;
+			}
+			
+			InvalidateRect(hwnd, &consoleRect, FALSE);
+			repaintConsoleOnly = 1;
+		}
 
 		case WM_PAINT:
 		{
@@ -109,6 +151,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			{
 				SelectObject(hdc, mainFont);
 				SetTextColor(hdc, fontColor);
+				if(repaintConsoleOnly) goto DrawConsoleLabel;
 				paintStart_x = 12;
 				paintStart_y = 12;
 
@@ -137,6 +180,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	            //draw file names in current directory
 				DrawUnderlinedTitle(&hdc, "Files", 6);
 				DrawTextList(&hdc, fileNames, fileNameLengths, fileCount);
+
+				DrawConsoleLabel:
+				TextOut(hdc, 12, consolePaintStart_y, userInput, userInputCarat);
+				repaintConsoleOnly = 0;
 			}
 
 			SelectObject(hdc, oldFont);
@@ -156,7 +203,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	WNDCLASSEX wc;
-	HWND hwnd;
 	MSG msg;
 
 	//Initialize my Globals
@@ -172,6 +218,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	boldFont = CreateFont(16, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 2, 0, "OCR A Extended");
 	bgBrush = CreateSolidBrush(bgColor);
 	linePen = CreatePen(PS_SOLID, 1, fontColor);
+	consolePaintStart_y = 600;
+	consoleRect.top = consolePaintStart_y;
+	consoleRect.left = 12;
+	consoleRect.right = 12 + 10 * userInputMaxLen;
+	consoleRect.bottom = consolePaintStart_y + 12;
+	repaintConsoleOnly = 0;
 
 	//get all files in directory and cache for later
 	{
@@ -229,6 +281,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	hwnd = CreateWindowEx(0, g_szClassName, "title", WS_BORDER, 0, 0, screenX, screenY, NULL, NULL, hInstance, NULL);
 	SetWindowLong(hwnd, GWL_STYLE, 0);
+	//GetClientRect(hwnd, &rect);
 
 	//using SW_SHOWNORMAL rather than nCmdShow
 	ShowWindow(hwnd, SW_SHOWNORMAL);
