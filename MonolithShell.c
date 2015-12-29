@@ -27,9 +27,8 @@ char userInputCarat = 0;
 char userInput[userInputMaxLen];
 
 RECT consoleRect;
+RECT wholeScreen;
 char repaintConsoleOnly;
-int paintStart_x;
-int paintStart_y;
 int consolePaintStart_y;
 
 //This was my general overview screen draw code
@@ -61,29 +60,63 @@ void DisplayError(const char* message)
 	MessageBox(NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK);
 }
 
-void DrawUnderlinedTitle(HDC* hdc, char* text, int textlen)
+void DrawUnderlinedTitle(HDC* hdc, const char* text, const int textlen, int *paintStart_x, int *paintStart_y)
 {
 	HFONT oldFont = SelectObject(*hdc, boldFont);
-	TextOut(*hdc, paintStart_x, paintStart_y, text, textlen);
-	paintStart_y += 12 + 4;
+	TextOut(*hdc, *paintStart_x, *paintStart_y, text, textlen);
+	*paintStart_y += 12 + 4;
 	SelectObject(*hdc, linePen);
-	MoveToEx(*hdc, paintStart_x, paintStart_y, NULL);
-	LineTo(*hdc, screenX - 12, paintStart_y);
+	MoveToEx(*hdc, *paintStart_x, *paintStart_y, NULL);
+	LineTo(*hdc, screenX - 12, *paintStart_y);
 	SelectObject(*hdc, oldFont);
-	paintStart_y += 8;
+	*paintStart_y += 10;
 }
 
-void DrawTextList(HDC* hdc, char* text, char* lineLengths, char lineCount)
+void DrawTextList(HDC* hdc, char* text, char* lineLengths, char lineCount, int* paintStart_x, int* paintStart_y)
 {
 	int i;
 	int startIndex = 0;
 	for(i = 0; i < lineCount; i++)
 	{
 		int len = lineLengths[i];
-		TextOut(*hdc, paintStart_x, paintStart_y, &text[startIndex], len);
+		TextOut(*hdc, *paintStart_x, *paintStart_y, &text[startIndex], len);
 		startIndex += len;
-		paintStart_y += 12 + 4;
+		*paintStart_y += 12 + 4;
 	}
+}
+
+void CacheDirContents(){
+	HANDLE fileHandle;
+	WIN32_FIND_DATA data;
+	char* fileTypeHead = &fileNames;
+	char* dirTypeHead = &dirNames;
+	char pathSearch[currentPathMaxLen];
+	strcpy(pathSearch, currentPathStr);
+	strcat(pathSearch, "/*");
+
+	fileCount = 0;
+	dirCount = 0;
+	fileHandle = FindFirstFile(pathSearch, &data);
+	do{
+		int fileNameLen = strlen(data.cFileName);
+
+		if((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+			strcpy(dirTypeHead, data.cFileName);
+			dirNameLengths[dirCount] = fileNameLen;
+			dirTypeHead += fileNameLen;
+			dirCount++;
+		}
+		else {
+			strcpy(fileTypeHead, data.cFileName);
+			fileNameLengths[fileCount] = fileNameLen;
+			fileTypeHead += fileNameLen;
+			fileCount++;
+		}
+
+	} while(FindNextFile(fileHandle, &data));
+	FindClose(fileHandle);
+
+	InvalidateRect(hwnd, &wholeScreen, FALSE);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -110,30 +143,72 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			} 
 
 			keypress = wParam;
-
 			switch(keypress)
 			{
 				case 8:
-			//backspace
-				userInput[userInputCarat] = 0;
-				userInputCarat--;
+			    //backspace
+			    if(userInputCarat > 0)
+			    {
+			    	userInput[userInputCarat] = 0;
+			    	userInputCarat--;
+			    	InvalidateRect(hwnd, &consoleRect, FALSE);
+			    	repaintConsoleOnly = 1;
+			    }
 				break;
+
 				case 13:
-				{
+				{   //enter
+					//process input
+					if(userInput[0] == 'c' && userInput[1] == 'd'){
+						char newDir [MAX_PATH];
+						char* catPath = &userInput[3];
+						int newPathLen;
+						strcpy(&newDir, &currentPathStr);
+
+						if(userInput[3] == '.' && userInput[4] == '.') {
+							int i = currentPathLen;
+							newPathLen = currentPathLen;
+							while(newDir[i] != '\\') {
+								newDir[i] = 0;
+								i--;
+								newPathLen--;
+							}
+							newDir[i] = 0;
+						}
+						else {
+	                        //build new dir string
+							strcat(&newDir, "\\");
+							strcat(&newDir, catPath);
+							newPathLen = currentPathLen + 1 + userInputCarat - 3;
+						}
+
+	                    //attempt change
+						if(SetCurrentDirectory(&newDir)) {  
+							//update state if change succeeded
+							memset(currentPathStr, 0, currentPathMaxLen);
+							memcpy(currentPathStr, newDir, newPathLen);
+							currentPathLen = newPathLen;
+							CacheDirContents();
+						}
+					}
+
 					int i;
 					for(i = 0; i < userInputCarat; i++)
 						userInput[i] = 0;
 					userInputCarat = 0;
+
 					break;
 				}
 				default:
-				userInput[userInputCarat] = keypress;
-				userInputCarat++;
+				if(userInputCarat <= 255)
+				{
+					userInput[userInputCarat] = keypress;
+					userInputCarat++;
+					InvalidateRect(hwnd, &consoleRect, FALSE);
+			    	repaintConsoleOnly = 1;
+				}
 				break;
 			}
-			
-			InvalidateRect(hwnd, &consoleRect, FALSE);
-			repaintConsoleOnly = 1;
 		}
 
 		case WM_PAINT:
@@ -152,8 +227,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				SelectObject(hdc, mainFont);
 				SetTextColor(hdc, fontColor);
 				if(repaintConsoleOnly) goto DrawConsoleLabel;
-				paintStart_x = 12;
-				paintStart_y = 12;
+				int paintStart_x = 12;
+				int paintStart_y = 12;
 
 	            //draw info about current directory
 	            SelectObject(hdc, boldFont);
@@ -172,16 +247,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				paintStart_y += 14;
 
 				//draw sub directories in current directory
-				DrawUnderlinedTitle(&hdc, "Sub Directories", 16);
-				DrawTextList(&hdc, dirNames, dirNameLengths, dirCount);
+				DrawUnderlinedTitle(&hdc, "Sub Directories", 16, &paintStart_x, &paintStart_y);
+				DrawTextList(&hdc, dirNames, dirNameLengths, dirCount, &paintStart_x, &paintStart_y);
 
 				paintStart_y += 14;
 
 	            //draw file names in current directory
-				DrawUnderlinedTitle(&hdc, "Files", 6);
-				DrawTextList(&hdc, fileNames, fileNameLengths, fileCount);
+				DrawUnderlinedTitle(&hdc, "Files", 6, &paintStart_x, &paintStart_y);
+				DrawTextList(&hdc, fileNames, fileNameLengths, fileCount, &paintStart_x, &paintStart_y);
 
+	            //draw Console and user input
+	            paintStart_y = consolePaintStart_y - 18;
+				DrawUnderlinedTitle(&hdc, "Console", 7, &paintStart_x, &paintStart_y);
 				DrawConsoleLabel:
+				paintStart_x = 12; 
+				paintStart_y = consolePaintStart_y;
 				TextOut(hdc, 12, consolePaintStart_y, userInput, userInputCarat);
 				repaintConsoleOnly = 0;
 			}
@@ -222,43 +302,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	consoleRect.top = consolePaintStart_y;
 	consoleRect.left = 12;
 	consoleRect.right = 12 + 10 * userInputMaxLen;
-	consoleRect.bottom = consolePaintStart_y + 12;
+	consoleRect.bottom = consolePaintStart_y + 24;
+	wholeScreen.top = 0;
+	wholeScreen.bottom = screenY;
+	wholeScreen.left = 0;
+	wholeScreen.right = screenX;
 	repaintConsoleOnly = 0;
 
-	//get all files in directory and cache for later
-	{
-		HANDLE fileHandle;
-		WIN32_FIND_DATA data;
-		char* fileTypeHead = &fileNames;
-		char* dirTypeHead = &dirNames;
-		char pathSearch[currentPathMaxLen];
-		strcpy(pathSearch, currentPathStr);
-		strcat(pathSearch, "/*");
-
-		fileCount = 0;
-		dirCount = 0;
-		fileHandle = FindFirstFile(pathSearch, &data);
-		do{
-			int fileNameLen = strlen(data.cFileName);
-
-			if((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
-			{
-				strcpy(dirTypeHead, data.cFileName);
-				dirNameLengths[dirCount] = fileNameLen;
-				dirTypeHead += fileNameLen;
-				dirCount++;
-			}
-			else
-			{
-				strcpy(fileTypeHead, data.cFileName);
-				fileNameLengths[fileCount] = fileNameLen;
-				fileTypeHead += fileNameLen;
-				fileCount++;
-			}
-
-		} while(FindNextFile(fileHandle, &data));
-		FindClose(fileHandle);
-	}
+	CacheDirContents();
 
 	wc.cbSize = sizeof(WNDCLASSEX);
 	wc.style = 0;
