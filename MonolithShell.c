@@ -12,6 +12,7 @@ HWND hwnd;
 
 #define currentPathMaxLen 1024
 #define userInputMaxLen 256
+#define MAX_CONSOLE_LINES 4
 int currentPathLen = 0;
 char currentPathStr[currentPathMaxLen];
 
@@ -25,6 +26,7 @@ char fileNameLengths[64];
 
 unsigned char userInputCarat = 0;
 char userInput[userInputMaxLen];
+char pastConsoleLines[MAX_CONSOLE_LINES][userInputMaxLen];
 
 RECT consoleRect;
 RECT wholeScreen;
@@ -59,26 +61,11 @@ void DisplayError( const char* message ) {
 	MessageBox( NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK );
 }
 
-void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, int *paintStart_x, int *paintStart_y ) {
-	HFONT oldFont = SelectObject( *hdc, boldFont );
-	TextOut( *hdc, *paintStart_x, *paintStart_y, text, textlen );
-	*paintStart_y += 12 + 4;
-	SelectObject( *hdc, linePen );
-	MoveToEx( *hdc, *paintStart_x, *paintStart_y, NULL );
-	LineTo( *hdc, screenX - 12, *paintStart_y );
-	SelectObject( *hdc, oldFont );
-	*paintStart_y += 10;
-}
-
-void DrawTextList( HDC* hdc, const char* text, const char* lineLengths, const char lineCount, int* paintStart_x, int* paintStart_y ) {
-	int i;
-	int startIndex = 0;
-	for( i = 0; i < lineCount; i++ ) {
-		int len = lineLengths[i];
-		TextOut( *hdc, *paintStart_x, *paintStart_y, &text[startIndex], len );
-		startIndex += len;
-		*paintStart_y += 16;
-	}
+void PushMessageToConsole(const char* msg) {
+	strcpy(&pastConsoleLines[3][0], &pastConsoleLines[2][0]);
+	strcpy(&pastConsoleLines[2][0], &pastConsoleLines[1][0]);
+	strcpy(&pastConsoleLines[1][0], &pastConsoleLines[0][0]);
+	strcpy(&pastConsoleLines[0][0], msg);
 }
 
 void CacheDirContents() {
@@ -112,6 +99,28 @@ void CacheDirContents() {
 	FindClose( fileHandle );
 
 	InvalidateRect( hwnd, &wholeScreen, FALSE );
+}
+
+void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, int *paintStart_x, int *paintStart_y ) {
+	HFONT oldFont = SelectObject( *hdc, boldFont );
+	TextOut( *hdc, *paintStart_x, *paintStart_y, text, textlen );
+	*paintStart_y += 12 + 4;
+	SelectObject( *hdc, linePen );
+	MoveToEx( *hdc, *paintStart_x, *paintStart_y, NULL );
+	LineTo( *hdc, screenX - 12, *paintStart_y );
+	SelectObject( *hdc, oldFont );
+	*paintStart_y += 10;
+}
+
+void DrawTextList( HDC* hdc, const char* text, const char* lineLengths, const char lineCount, int* paintStart_x, int* paintStart_y ) {
+	int i;
+	int startIndex = 0;
+	for( i = 0; i < lineCount; i++ ) {
+		int len = lineLengths[i];
+		TextOut( *hdc, *paintStart_x, *paintStart_y, &text[startIndex], len );
+		startIndex += len;
+		*paintStart_y += 16;
+	}
 }
 
 LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
@@ -179,12 +188,15 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 							currentPathLen = newPathLen;
 							CacheDirContents();
 						}
+						else {
+							PushMessageToConsole("could not find directory");
+							InvalidateRect( hwnd, &consoleRect, FALSE );
+							repaintConsoleOnly = 1;
+						}
 					}
 
-					int i;
-					for( i = 0; i < userInputCarat; i++ ) {
-						userInput[i] = 0;
-					}
+					PushMessageToConsole(&userInput[0]);
+					memset(userInput, 0, userInputCarat);
 					userInputCarat = 0;
 
 					break;
@@ -251,7 +263,18 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 				DrawConsoleLabel:
 				paintStart_x = 12; 
 				paintStart_y = consolePaintStart_y;
-				TextOut(hdc, 12, consolePaintStart_y, userInput, userInputCarat);
+				TextOut(hdc, paintStart_x, paintStart_y, userInput, userInputCarat);
+				paintStart_y += 16;
+
+				int i;
+				int consoleLineLen;
+				for(i = 0; i < MAX_CONSOLE_LINES; i++) {
+					consoleLineLen = strlen(&pastConsoleLines[i][0]);
+					TextOut(hdc, paintStart_x, paintStart_y, &pastConsoleLines[i][0], consoleLineLen);
+					paintStart_y += 16;
+				}
+
+
 				repaintConsoleOnly = 0;
 			}
 
@@ -278,6 +301,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	memset(userInput, 0, userInputMaxLen);
 	memset(fileNameLengths, 0, 256);
 	memset(fileNames, 0, 1024);
+	memset(pastConsoleLines, 0, MAX_CONSOLE_LINES * userInputMaxLen);
 	screenX = GetSystemMetrics(SM_CXSCREEN);
 	screenY = GetSystemMetrics(SM_CYSCREEN);
 	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr[0]);
@@ -291,7 +315,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	consoleRect.top = consolePaintStart_y;
 	consoleRect.left = 12;
 	consoleRect.right = 12 + 10 * userInputMaxLen;
-	consoleRect.bottom = consolePaintStart_y + 24;
+	consoleRect.bottom = consolePaintStart_y + (MAX_CONSOLE_LINES + 1) * 16;
 	wholeScreen.top = 0;
 	wholeScreen.bottom = screenY;
 	wholeScreen.left = 0;
