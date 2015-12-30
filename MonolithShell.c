@@ -15,15 +15,15 @@ HWND hwnd;
 int currentPathLen = 0;
 char currentPathStr[currentPathMaxLen];
 
-char dirCount = 0;
+unsigned char dirCount = 0;
 char dirNameLengths[64];
 char dirNames[4 * 1024];
 
-char fileCount = 0;
-char fileNameLengths[64];
+unsigned char fileCount = 0;
 char fileNames [4 * 1024];
+char fileNameLengths[64];
 
-char userInputCarat = 0;
+unsigned char userInputCarat = 0;
 char userInput[userInputMaxLen];
 
 RECT consoleRect;
@@ -72,7 +72,7 @@ void DrawUnderlinedTitle(HDC* hdc, const char* text, const int textlen, int *pai
 	*paintStart_y += 10;
 }
 
-void DrawTextList(HDC* hdc, char* text, char* lineLengths, char lineCount, int* paintStart_x, int* paintStart_y)
+void DrawTextList(HDC* hdc, const char* text, const char* lineLengths,const  char lineCount, int* paintStart_x, int* paintStart_y)
 {
 	int i;
 	int startIndex = 0;
@@ -88,8 +88,8 @@ void DrawTextList(HDC* hdc, char* text, char* lineLengths, char lineCount, int* 
 void CacheDirContents(){
 	HANDLE fileHandle;
 	WIN32_FIND_DATA data;
-	char* fileTypeHead = &fileNames;
-	char* dirTypeHead = &dirNames;
+	char* fileTypeHead = &fileNames[0];
+	char* dirTypeHead = &dirNames[0];
 	char pathSearch[currentPathMaxLen];
 	strcpy(pathSearch, currentPathStr);
 	strcat(pathSearch, "/*");
@@ -163,7 +163,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 						char newDir [MAX_PATH];
 						char* catPath = &userInput[3];
 						int newPathLen;
-						strcpy(&newDir, &currentPathStr);
+						strcpy(&newDir[0], &currentPathStr[0]);
 
 						if(userInput[3] == '.' && userInput[4] == '.') {
 							int i = currentPathLen;
@@ -177,13 +177,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 						}
 						else {
 	                        //build new dir string
-							strcat(&newDir, "\\");
-							strcat(&newDir, catPath);
+							strcat(&newDir[currentPathLen], "\\");
+							strcat(&newDir[currentPathLen + 1], catPath);
 							newPathLen = currentPathLen + 1 + userInputCarat - 3;
 						}
 
 	                    //attempt change
-						if(SetCurrentDirectory(&newDir)) {  
+						if(SetCurrentDirectory(&newDir[0])) {  
 							//update state if change succeeded
 							memset(currentPathStr, 0, currentPathMaxLen);
 							memcpy(currentPathStr, newDir, newPathLen);
@@ -291,7 +291,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	memset(fileNames, 0, 1024);
 	screenX = GetSystemMetrics(SM_CXSCREEN);
 	screenY = GetSystemMetrics(SM_CYSCREEN);
-	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr);
+	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr[0]);
 	bgColor = RGB(49, 39, 50);
 	fontColor = RGB(5, 239, 64);
 	mainFont = CreateFont(14, 0, 0, 0, FW_THIN, 0, 0, 0, 0, 0, 0, 2, 0, "OCR A Extended");
