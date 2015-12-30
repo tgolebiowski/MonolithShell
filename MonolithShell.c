@@ -55,103 +55,93 @@ int consolePaintStart_y;
 // 	text_y += 12 + bufBtwnLines;
 // }
 
-void DisplayError(const char* message)
-{
-	MessageBox(NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK);
+void DisplayError( const char* message ) {
+	MessageBox( NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK );
 }
 
-void DrawUnderlinedTitle(HDC* hdc, const char* text, const int textlen, int *paintStart_x, int *paintStart_y)
-{
-	HFONT oldFont = SelectObject(*hdc, boldFont);
-	TextOut(*hdc, *paintStart_x, *paintStart_y, text, textlen);
+void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, int *paintStart_x, int *paintStart_y ) {
+	HFONT oldFont = SelectObject( *hdc, boldFont );
+	TextOut( *hdc, *paintStart_x, *paintStart_y, text, textlen );
 	*paintStart_y += 12 + 4;
-	SelectObject(*hdc, linePen);
-	MoveToEx(*hdc, *paintStart_x, *paintStart_y, NULL);
-	LineTo(*hdc, screenX - 12, *paintStart_y);
-	SelectObject(*hdc, oldFont);
+	SelectObject( *hdc, linePen );
+	MoveToEx( *hdc, *paintStart_x, *paintStart_y, NULL );
+	LineTo( *hdc, screenX - 12, *paintStart_y );
+	SelectObject( *hdc, oldFont );
 	*paintStart_y += 10;
 }
 
-void DrawTextList(HDC* hdc, const char* text, const char* lineLengths,const  char lineCount, int* paintStart_x, int* paintStart_y)
-{
+void DrawTextList( HDC* hdc, const char* text, const char* lineLengths, const char lineCount, int* paintStart_x, int* paintStart_y ) {
 	int i;
 	int startIndex = 0;
-	for(i = 0; i < lineCount; i++)
-	{
+	for( i = 0; i < lineCount; i++ ) {
 		int len = lineLengths[i];
-		TextOut(*hdc, *paintStart_x, *paintStart_y, &text[startIndex], len);
+		TextOut( *hdc, *paintStart_x, *paintStart_y, &text[startIndex], len );
 		startIndex += len;
-		*paintStart_y += 12 + 4;
+		*paintStart_y += 16;
 	}
 }
 
-void CacheDirContents(){
+void CacheDirContents() {
 	HANDLE fileHandle;
 	WIN32_FIND_DATA data;
 	char* fileTypeHead = &fileNames[0];
 	char* dirTypeHead = &dirNames[0];
 	char pathSearch[currentPathMaxLen];
-	strcpy(pathSearch, currentPathStr);
-	strcat(pathSearch, "/*");
+	strcpy( pathSearch, currentPathStr );
+	strcat( pathSearch, "/*" );
 
 	fileCount = 0;
 	dirCount = 0;
-	fileHandle = FindFirstFile(pathSearch, &data);
+	fileHandle = FindFirstFile( pathSearch, &data );
 	do{
-		int fileNameLen = strlen(data.cFileName);
+		int fileNameLen = strlen( data.cFileName );
 
-		if((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-			strcpy(dirTypeHead, data.cFileName);
+		if( ( data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 ) {
+			strcpy( dirTypeHead, data.cFileName );
 			dirNameLengths[dirCount] = fileNameLen;
 			dirTypeHead += fileNameLen;
 			dirCount++;
-		}
-		else {
-			strcpy(fileTypeHead, data.cFileName);
+		} else {
+			strcpy( fileTypeHead, data.cFileName );
 			fileNameLengths[fileCount] = fileNameLen;
 			fileTypeHead += fileNameLen;
 			fileCount++;
 		}
 
-	} while(FindNextFile(fileHandle, &data));
-	FindClose(fileHandle);
+	} while( FindNextFile( fileHandle, &data ) );
+	FindClose( fileHandle );
 
-	InvalidateRect(hwnd, &wholeScreen, FALSE);
+	InvalidateRect( hwnd, &wholeScreen, FALSE );
 }
 
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
+LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 
-	switch(msg)
-	{
+	switch( msg ) {
 		case WM_CLOSE:
-		DestroyWindow(hwnd);
+		DestroyWindow( hwnd );
 		break;
 
 		case WM_DESTROY:
-		PostQuitMessage(0);
+		PostQuitMessage( 0 );
 		break;
 
 		case WM_CHAR:
 		{
 			char keypress;
 
-			if(userInputCarat >= 254)
-			{
-				break;
+			if(userInputCarat >= 254) {
 				repaintConsoleOnly = 0;
+				break;
 			} 
 
 			keypress = wParam;
-			switch(keypress)
-			{
+			switch( keypress ) {
 				case 8:
 			    //backspace
-			    if(userInputCarat > 0)
-			    {
+			    if( userInputCarat > 0 ) {
 			    	userInput[userInputCarat] = 0;
 			    	userInputCarat--;
-			    	InvalidateRect(hwnd, &consoleRect, FALSE);
+			    	InvalidateRect( hwnd, &consoleRect, FALSE );
 			    	repaintConsoleOnly = 1;
 			    }
 				break;
@@ -159,52 +149,51 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				case 13:
 				{   //enter
 					//process input
-					if(userInput[0] == 'c' && userInput[1] == 'd'){
+					if( userInput[0] == 'c' && userInput[1] == 'd' ) {
 						char newDir [MAX_PATH];
 						char* catPath = &userInput[3];
 						int newPathLen;
-						strcpy(&newDir[0], &currentPathStr[0]);
+						strcpy( &newDir[0], &currentPathStr[0] );
 
-						if(userInput[3] == '.' && userInput[4] == '.') {
+						if( userInput[3] == '.' && userInput[4] == '.' ) {
 							int i = currentPathLen;
 							newPathLen = currentPathLen;
-							while(newDir[i] != '\\') {
+							while( newDir[i] != '\\' ) {
 								newDir[i] = 0;
-								i--;
 								newPathLen--;
+								i--;
 							}
 							newDir[i] = 0;
-						}
-						else {
+						} else {
 	                        //build new dir string
-							strcat(&newDir[currentPathLen], "\\");
-							strcat(&newDir[currentPathLen + 1], catPath);
+							strcat( &newDir[currentPathLen], "\\" );
+							strcat( &newDir[currentPathLen + 1], catPath );
 							newPathLen = currentPathLen + 1 + userInputCarat - 3;
 						}
 
 	                    //attempt change
-						if(SetCurrentDirectory(&newDir[0])) {  
+						if( SetCurrentDirectory( &newDir[0] ) ) {  
 							//update state if change succeeded
-							memset(currentPathStr, 0, currentPathMaxLen);
-							memcpy(currentPathStr, newDir, newPathLen);
+							memset( currentPathStr, 0, currentPathMaxLen );
+							memcpy( currentPathStr, newDir, newPathLen );
 							currentPathLen = newPathLen;
 							CacheDirContents();
 						}
 					}
 
 					int i;
-					for(i = 0; i < userInputCarat; i++)
+					for( i = 0; i < userInputCarat; i++ ) {
 						userInput[i] = 0;
+					}
 					userInputCarat = 0;
 
 					break;
 				}
 				default:
-				if(userInputCarat <= 255)
-				{
+				if(userInputCarat <= 255) {
 					userInput[userInputCarat] = keypress;
 					userInputCarat++;
-					InvalidateRect(hwnd, &consoleRect, FALSE);
+					InvalidateRect( hwnd, &consoleRect, FALSE );
 			    	repaintConsoleOnly = 1;
 				}
 				break;
@@ -217,32 +206,32 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			PAINTSTRUCT paintStruct;
 			HFONT oldFont;
 
-			hdc = BeginPaint(hwnd, &paintStruct);
-			oldFont = (HFONT)SelectObject(hdc, bgBrush);
-			SetBkColor(hdc, bgColor);
-			Rectangle(hdc, 0, 0, screenX, screenY);
+			hdc = BeginPaint( hwnd, &paintStruct );
+			oldFont = (HFONT)SelectObject( hdc, bgBrush );
+			SetBkColor( hdc, bgColor );
+			Rectangle( hdc, 0, 0, screenX, screenY );
 
 	        //File viewing/mgmt mode painting
 			{
-				SelectObject(hdc, mainFont);
-				SetTextColor(hdc, fontColor);
+				SelectObject( hdc, mainFont );
+				SetTextColor( hdc, fontColor );
 				if(repaintConsoleOnly) goto DrawConsoleLabel;
 				int paintStart_x = 12;
 				int paintStart_y = 12;
 
 	            //draw info about current directory
-	            SelectObject(hdc, boldFont);
-				TextOut(hdc, paintStart_x, paintStart_y, "Current Directory:", 18);
+	            SelectObject( hdc, boldFont );
+				TextOut( hdc, paintStart_x, paintStart_y, "Current Directory:", 18 );
 				paintStart_x += 18 * 12 + 4;
-				SelectObject(hdc, mainFont);
-				TextOut(hdc, paintStart_x, paintStart_y, currentPathStr, currentPathLen + 1);
+				SelectObject( hdc, mainFont );
+				TextOut( hdc, paintStart_x, paintStart_y, currentPathStr, currentPathLen + 1 );
 				paintStart_y += 12 + 4;
 				paintStart_x = 12;
 
-				SelectObject(hdc, linePen);
-				MoveToEx(hdc, paintStart_x, paintStart_y, NULL);
-				LineTo(hdc, screenX - 12, paintStart_y);
-				SelectObject(hdc, mainFont);
+				SelectObject( hdc, linePen );
+				MoveToEx( hdc, paintStart_x, paintStart_y, NULL );
+				LineTo( hdc, screenX - 12, paintStart_y );
+				SelectObject( hdc, mainFont );
 
 				paintStart_y += 14;
 
@@ -324,8 +313,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	wc.lpszClassName = g_szClassName;
 	wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
 
-	if(!RegisterClassEx(&wc))
-	{
+	if(!RegisterClassEx(&wc)) {
 		DisplayError("Window Registry Failed");
 		return 0;
 	}
@@ -338,8 +326,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	ShowWindow(hwnd, SW_SHOWNORMAL);
 	UpdateWindow(hwnd);
 
-	while(GetMessage(&msg, NULL, 0, 0) > 0)
-	{
+	while(GetMessage(&msg, NULL, 0, 0) > 0)	{
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
