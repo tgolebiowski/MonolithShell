@@ -33,6 +33,11 @@ RECT wholeScreen;
 char repaintConsoleOnly;
 int consolePaintStart_y;
 
+typedef struct PixelCoords{
+	int x;
+	int y;
+}PixelCoords;
+
 //This was my general overview screen draw code
 // {
 // 	int text_x = 12;
@@ -62,9 +67,10 @@ void DisplayError( const char* message ) {
 }
 
 void PushMessageToConsole(const char* msg) {
-	strcpy(&pastConsoleLines[3][0], &pastConsoleLines[2][0]);
-	strcpy(&pastConsoleLines[2][0], &pastConsoleLines[1][0]);
-	strcpy(&pastConsoleLines[1][0], &pastConsoleLines[0][0]);
+	int i;
+	for(i = MAX_CONSOLE_LINES - 1; i > 0; i--) {
+		strcpy(&pastConsoleLines[i][0], &pastConsoleLines[i- 1][0]);
+	}
 	strcpy(&pastConsoleLines[0][0], msg);
 }
 
@@ -101,25 +107,25 @@ void CacheDirContents() {
 	InvalidateRect( hwnd, &wholeScreen, FALSE );
 }
 
-void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, int *paintStart_x, int *paintStart_y ) {
+void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, PixelCoords* paintStart) {
 	HFONT oldFont = SelectObject( *hdc, boldFont );
-	TextOut( *hdc, *paintStart_x, *paintStart_y, text, textlen );
-	*paintStart_y += 12 + 4;
+	TextOut( *hdc, paintStart->x, paintStart->y, text, textlen );
+	paintStart->y += 12 + 4;
 	SelectObject( *hdc, linePen );
-	MoveToEx( *hdc, *paintStart_x, *paintStart_y, NULL );
-	LineTo( *hdc, screenX - 12, *paintStart_y );
+	MoveToEx( *hdc, paintStart->x, paintStart->y, NULL );
+	LineTo( *hdc, screenX - 12, paintStart->y );
 	SelectObject( *hdc, oldFont );
-	*paintStart_y += 10;
+	paintStart->y += 10;
 }
 
-void DrawTextList( HDC* hdc, const char* text, const char* lineLengths, const char lineCount, int* paintStart_x, int* paintStart_y ) {
+void DrawTextList( HDC* hdc, const char* text, const char* lineLengths, const char lineCount, const int botCutoff, PixelCoords* paintStart) {
 	int i;
 	int startIndex = 0;
-	for( i = 0; i < lineCount; i++ ) {
+	for( i = 0; i < lineCount && paintStart->y < botCutoff; i++ ) {
 		int len = lineLengths[i];
-		TextOut( *hdc, *paintStart_x, *paintStart_y, &text[startIndex], len );
+		TextOut( *hdc, paintStart->x, paintStart->y, &text[startIndex], len );
 		startIndex += len;
-		*paintStart_y += 16;
+		paintStart->y += 16;
 	}
 }
 
@@ -228,50 +234,51 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 				SelectObject( hdc, mainFont );
 				SetTextColor( hdc, fontColor );
 				if(repaintConsoleOnly) goto DrawConsoleLabel;
-				int paintStart_x = 12;
-				int paintStart_y = 12;
+				PixelCoords paintStart;
+				paintStart.x = 12;
+				paintStart.y = 12;
 
 	            //draw info about current directory
 	            SelectObject( hdc, boldFont );
-				TextOut( hdc, paintStart_x, paintStart_y, "Current Directory:", 18 );
-				paintStart_x += 18 * 12 + 4;
+				TextOut( hdc, paintStart.x, paintStart.y, "Current Directory:", 18 );
+				paintStart.x += 18 * 12 + 4;
 				SelectObject( hdc, mainFont );
-				TextOut( hdc, paintStart_x, paintStart_y, currentPathStr, currentPathLen + 1 );
-				paintStart_y += 12 + 4;
-				paintStart_x = 12;
+				TextOut( hdc, paintStart.x, paintStart.y, currentPathStr, currentPathLen + 1 );
+				paintStart.x = 12;
+				paintStart.y += 12 + 4;
 
 				SelectObject( hdc, linePen );
-				MoveToEx( hdc, paintStart_x, paintStart_y, NULL );
-				LineTo( hdc, screenX - 12, paintStart_y );
+				MoveToEx( hdc, paintStart.x, paintStart.y, NULL );
+				LineTo( hdc, screenX - 12, paintStart.y );
 				SelectObject( hdc, mainFont );
 
-				paintStart_y += 14;
+				paintStart.y += 14;
 
 				//draw sub directories in current directory
-				DrawUnderlinedTitle(&hdc, "Sub Directories", 16, &paintStart_x, &paintStart_y);
-				DrawTextList(&hdc, dirNames, dirNameLengths, dirCount, &paintStart_x, &paintStart_y);
+				DrawUnderlinedTitle(&hdc, "Sub Directories", 16, &paintStart);
+				DrawTextList(&hdc, dirNames, dirNameLengths, dirCount, 300, &paintStart);
 
-				paintStart_y += 14;
+				paintStart.y += 14;
 
 	            //draw file names in current directory
-				DrawUnderlinedTitle(&hdc, "Files", 6, &paintStart_x, &paintStart_y);
-				DrawTextList(&hdc, fileNames, fileNameLengths, fileCount, &paintStart_x, &paintStart_y);
+				DrawUnderlinedTitle(&hdc, "Files", 6, &paintStart);
+				DrawTextList(&hdc, fileNames, fileNameLengths, fileCount, consolePaintStart_y - 18 - 16, &paintStart);
 
 	            //draw Console and user input
-	            paintStart_y = consolePaintStart_y - 18;
-				DrawUnderlinedTitle(&hdc, "Console", 7, &paintStart_x, &paintStart_y);
+	            paintStart.y = consolePaintStart_y - 18;
+				DrawUnderlinedTitle(&hdc, "Console", 7, &paintStart);
 				DrawConsoleLabel:
-				paintStart_x = 12; 
-				paintStart_y = consolePaintStart_y;
-				TextOut(hdc, paintStart_x, paintStart_y, userInput, userInputCarat);
-				paintStart_y += 16;
+				paintStart.x = 12; 
+				paintStart.y = consolePaintStart_y;
+				TextOut(hdc, paintStart.x, paintStart.y, userInput, userInputCarat);
+				paintStart.y += 16;
 
 				int i;
 				int consoleLineLen;
 				for(i = 0; i < MAX_CONSOLE_LINES; i++) {
 					consoleLineLen = strlen(&pastConsoleLines[i][0]);
-					TextOut(hdc, paintStart_x, paintStart_y, &pastConsoleLines[i][0], consoleLineLen);
-					paintStart_y += 16;
+					TextOut(hdc, paintStart.x, paintStart.y, &pastConsoleLines[i][0], consoleLineLen);
+					paintStart.y += 16;
 				}
 
 
