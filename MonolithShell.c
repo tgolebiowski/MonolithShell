@@ -16,17 +16,26 @@ HWND hwnd;
 int currentPathLen = 0;
 char currentPathStr[currentPathMaxLen];
 
-unsigned char dirCount = 0;
-char dirNameLengths[64];
-char dirNames[4 * 1024];
-
-unsigned char fileCount = 0;
-char fileNames [4 * 1024];
-char fileNameLengths[64];
-
 unsigned char userInputCarat = 0;
 char userInput[userInputMaxLen];
 char pastConsoleLines[MAX_CONSOLE_LINES][userInputMaxLen];
+
+typedef struct StringList{
+	unsigned char count;
+	char strlens[64];
+	char buffer[4 * 1024];
+}StringList;
+
+// unsigned char dirCount = 0;
+// char dirNameLengths[64];
+// char dirNames[4 * 1024];
+
+StringList dirsList;
+StringList filesList;
+
+// unsigned char fileCount = 0;
+// char fileNames [4 * 1024];
+// char fileNameLengths[64];
 
 RECT consoleRect;
 RECT wholeScreen;
@@ -77,28 +86,28 @@ void PushMessageToConsole(const char* msg) {
 void CacheDirContents() {
 	HANDLE fileHandle;
 	WIN32_FIND_DATA data;
-	char* fileTypeHead = &fileNames[0];
-	char* dirTypeHead = &dirNames[0];
+	char* fileTypeHead = &filesList.buffer[0];
+	char* dirTypeHead = &dirsList.buffer[0];
 	char pathSearch[currentPathMaxLen];
 	strcpy( pathSearch, currentPathStr );
 	strcat( pathSearch, "/*" );
 
-	fileCount = 0;
-	dirCount = 0;
+	filesList.count = 0;
+	dirsList.count = 0;
 	fileHandle = FindFirstFile( pathSearch, &data );
 	do{
 		int fileNameLen = strlen( data.cFileName );
 
 		if( ( data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 ) {
 			strcpy( dirTypeHead, data.cFileName );
-			dirNameLengths[dirCount] = fileNameLen;
+			dirsList.strlens[dirsList.count] = fileNameLen;
+			dirsList.count++;
 			dirTypeHead += fileNameLen;
-			dirCount++;
 		} else {
 			strcpy( fileTypeHead, data.cFileName );
-			fileNameLengths[fileCount] = fileNameLen;
+			filesList.strlens[filesList.count] = fileNameLen;
+			filesList.count++;
 			fileTypeHead += fileNameLen;
-			fileCount++;
 		}
 
 	} while( FindNextFile( fileHandle, &data ) );
@@ -238,7 +247,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 				paintStart.x = 12;
 				paintStart.y = 12;
 
-	            //draw info about current directory
+	            //draw basic info about current directory
 	            SelectObject( hdc, boldFont );
 				TextOut( hdc, paintStart.x, paintStart.y, "Current Directory:", 18 );
 				paintStart.x += 18 * 12 + 4;
@@ -247,24 +256,45 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 				paintStart.x = 12;
 				paintStart.y += 12 + 4;
 
+	            //underline
 				SelectObject( hdc, linePen );
 				MoveToEx( hdc, paintStart.x, paintStart.y, NULL );
 				LineTo( hdc, screenX - 12, paintStart.y );
 				SelectObject( hdc, mainFont );
-
 				paintStart.y += 14;
 
-				//draw sub directories in current directory
-				DrawUnderlinedTitle(&hdc, "Sub Directories", 16, &paintStart);
-				DrawTextList(&hdc, dirNames, dirNameLengths, dirCount, 300, &paintStart);
+				paintStart.y += 12; //a little top breathing room
+	            //Draw titles for Sub Directories and Files lists
+				SelectObject(hdc, boldFont);
+				TextOut(hdc, paintStart.x, paintStart.y, "Sub Directories", 15);
+				paintStart.x = (screenX / 2) + 12;
+				TextOut(hdc, paintStart.x, paintStart.y, "Files", 5);
+				paintStart.x = 12;
+				paintStart.y += 16;
 
-				paintStart.y += 14;
+			    //underline
+				SelectObject( hdc, linePen );
+				MoveToEx( hdc, paintStart.x, paintStart.y, NULL );
+				LineTo( hdc, screenX - 12, paintStart.y );
+				SelectObject( hdc, mainFont );
+				paintStart.y += 8;
 
-	            //draw file names in current directory
-				DrawUnderlinedTitle(&hdc, "Files", 6, &paintStart);
-				DrawTextList(&hdc, fileNames, fileNameLengths, fileCount, consolePaintStart_y - 18 - 16, &paintStart);
+				//Draw dividing line btwn lists
+				SelectObject( hdc, linePen );
+				MoveToEx( hdc, screenX / 2, paintStart.y, NULL );
+				LineTo( hdc, screenX / 2, consolePaintStart_y - 12 - 8 );
+				SelectObject( hdc, mainFont );
+
+				//draw sub directories list
+				int paintStartY_pos = paintStart.y; //save paintstart y position
+				DrawTextList(&hdc, &dirsList.buffer[0], &dirsList.strlens[0], dirsList.count, consolePaintStart_y - 18 -16, &paintStart);
+				paintStart.y = paintStartY_pos;//reset paintstart.y's carry
+	            //draw file names list
+	            paintStart.x = (screenX / 2) + 10; //move drawing to that side
+				DrawTextList(&hdc, &filesList.buffer[0], &filesList.strlens[0], filesList.count, consolePaintStart_y - 18 - 16, &paintStart);
 
 	            //draw Console and user input
+	            paintStart.x = 12;
 	            paintStart.y = consolePaintStart_y - 18;
 				DrawUnderlinedTitle(&hdc, "Console", 7, &paintStart);
 				DrawConsoleLabel:
@@ -306,8 +336,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	//Initialize my Globals
 	memset(userInput, 0, userInputMaxLen);
-	memset(fileNameLengths, 0, 256);
-	memset(fileNames, 0, 1024);
 	memset(pastConsoleLines, 0, MAX_CONSOLE_LINES * userInputMaxLen);
 	screenX = GetSystemMetrics(SM_CXSCREEN);
 	screenY = GetSystemMetrics(SM_CYSCREEN);
