@@ -173,7 +173,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 				case 13:
 				{   //enter
 					//process input
-					if( userInput[0] == 'c' && userInput[1] == 'd' ) {
+					if( userInput[0] == 'c' && userInput[1] == 'd' ) { //Change directory
 						char newDir [MAX_PATH];
 						char* catPath = &userInput[3];
 						int newPathLen;
@@ -204,7 +204,35 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 							CacheDirContents();
 						}
 						else {
-							PushMessageToConsole("could not find directory");
+							char error [MAX_PATH];
+							strcpy(&error[0], "could not find directory: ");
+							strcat(&error, &newDir[0]);
+							PushMessageToConsole(&error[0]);
+							InvalidateRect( hwnd, &consoleRect, FALSE );
+							repaintConsoleOnly = 1;
+						}
+					} else if (userInput[0] == 'r' && userInput[1] == 'n') { //Rename file
+						char srcName [MAX_PATH];
+						char newName [MAX_PATH];
+						int srcNameLen;
+						int newNameLen;
+						int i;
+						for(i = 2; i < userInputCarat - 1; i++) {
+							if(userInput[i] == '/' && userInput[i + 1] =='\\') {
+								srcNameLen = i - 3;
+								newNameLen = userInputCarat - (srcNameLen + 5);
+								break;
+							}
+						}
+						memcpy(&srcName[0], &userInput[3], srcNameLen);
+						memcpy(&newName[0], &userInput[5 + srcNameLen], newNameLen);
+						printf("src "); printf(&srcName[0]); printf("\n");
+						printf("newName "); printf(&newName[0]); printf("\n");
+
+						if(MoveFile(&srcName[0], &newName[0])) {
+							CacheDirContents();
+						} else {
+							PushMessageToConsole("could not rename");
 							InvalidateRect( hwnd, &consoleRect, FALSE );
 							repaintConsoleOnly = 1;
 						}
