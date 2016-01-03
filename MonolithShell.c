@@ -13,12 +13,6 @@ HWND hwnd;
 #define currentPathMaxLen 1024
 #define userInputMaxLen 256
 #define MAX_CONSOLE_LINES 4
-int currentPathLen = 0;
-char currentPathStr[currentPathMaxLen];
-
-unsigned char userInputCarat = 0;
-char userInput[userInputMaxLen];
-char pastConsoleLines[MAX_CONSOLE_LINES][userInputMaxLen];
 
 typedef struct StringList{
 	unsigned char count;
@@ -26,26 +20,25 @@ typedef struct StringList{
 	char buffer[4 * 1024];
 }StringList;
 
-// unsigned char dirCount = 0;
-// char dirNameLengths[64];
-// char dirNames[4 * 1024];
-
-StringList dirsList;
-StringList filesList;
-
-// unsigned char fileCount = 0;
-// char fileNames [4 * 1024];
-// char fileNameLengths[64];
-
-RECT consoleRect;
-RECT wholeScreen;
-char repaintConsoleOnly;
-int consolePaintStart_y;
-
 typedef struct PixelCoords{
 	int x;
 	int y;
 }PixelCoords;
+
+StringList dirsList;
+StringList filesList;
+
+int currentPathLen = 0;
+char currentPathStr[currentPathMaxLen];
+
+unsigned char userInputCarat = 0;
+char userInput[userInputMaxLen];
+char pastConsoleLines[MAX_CONSOLE_LINES][userInputMaxLen];
+char repaintConsoleOnly;
+int consolePaintStart_y;
+
+RECT consoleRect;
+RECT wholeScreen;
 
 //This was my general overview screen draw code
 // {
@@ -202,44 +195,72 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 							memcpy( currentPathStr, newDir, newPathLen );
 							currentPathLen = newPathLen;
 							CacheDirContents();
+							PushMessageToConsole(&userInput[0]);
+							memset(userInput, 0, userInputCarat);
+							userInputCarat = 0;
 						}
 						else {
 							char error [MAX_PATH];
 							strcpy(&error[0], "could not find directory: ");
-							strcat(&error, &newDir[0]);
+							strcat(&error[25], &newDir[0]);
 							PushMessageToConsole(&error[0]);
 							InvalidateRect( hwnd, &consoleRect, FALSE );
 							repaintConsoleOnly = 1;
+							PushMessageToConsole(&userInput[0]);
+							memset(userInput, 0, userInputCarat);
+							userInputCarat = 0;
 						}
 					} else if (userInput[0] == 'r' && userInput[1] == 'n') { //Rename file
+						char srcTypeSuffix [8];
+						char newNameSuffix [8];
 						char srcFile [MAX_PATH];
 						char newName [MAX_PATH];
 						int splitIndex, i, srcNameLen, newNameLen;
-						for(i = 2; i < userInputCarat; i++) {
-							if(userInput[i] == '.' && userInput[i + 1] == '.') {
+						for(i = 2; i < userInputCarat; i++) { //figure out where in user input are the two file names
+							if(userInput[i] == '-' && userInput[i + 1] == '>') {
 								splitIndex = i;
 								break;
 							}
 						}
 						srcNameLen = splitIndex - 3;
-						newNameLen = (userInputCarat) - (splitIndex + 2);
+						newNameLen = userInputCarat - (splitIndex + 2);
 						memset(&srcFile[0], 0, MAX_PATH);
 						memset(&newName[0], 0, MAX_PATH);
 						memcpy(&srcFile[0], &userInput[3], srcNameLen);
 						memcpy(&newName[0], &userInput[splitIndex + 2], newNameLen);
 
+						memset(&srcTypeSuffix[0], 0, 8);
+						memset(&newNameSuffix[0], 0, 8);
+						for(i = srcNameLen; i > 0; i--) {
+							if(srcFile[i] == '.') {
+								memcpy(&srcTypeSuffix[0], &srcFile[i], srcNameLen - i);
+								break;
+							}
+						}
+						for(i = newNameLen; i > 0; i--) {
+							if(newName[i] == '.') {
+								memcpy(&newNameSuffix[0], &newName[i], newNameLen - i);
+								break;
+							}
+						}
+						if(newNameSuffix[0] == 0) {
+							strcat(newName, srcTypeSuffix);
+						}
+
 						if(MoveFile(&srcFile[0], &newName[0])) {
 							CacheDirContents();
+							PushMessageToConsole(&userInput[0]);
+							memset(userInput, 0, userInputCarat);
+							userInputCarat = 0;
 						} else {
+							PushMessageToConsole(&userInput[0]);
+							memset(userInput, 0, userInputCarat);
+							userInputCarat = 0;
 							PushMessageToConsole("could not rename");
 							InvalidateRect( hwnd, &consoleRect, FALSE );
 							repaintConsoleOnly = 1;
 						}
 					}
-
-					PushMessageToConsole(&userInput[0]);
-					memset(userInput, 0, userInputCarat);
-					userInputCarat = 0;
 
 					break;
 				}
@@ -254,8 +275,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 			}
 		}
 
-		case WM_PAINT:
-		{
+		case WM_PAINT: {
 			HDC hdc;
 			PAINTSTRUCT paintStruct;
 			HFONT oldFont;
