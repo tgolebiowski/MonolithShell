@@ -116,7 +116,7 @@ void CacheDirContents() {
 	InvalidateRect( hwnd, &wholeScreen, FALSE );
 }
 
-void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, PixelCoords* paintStart) {
+void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, PixelCoords* paintStart ) {
 	HFONT oldFont = SelectObject( *hdc, boldFont );
 	TextOut( *hdc, paintStart->x, paintStart->y, text, textlen );
 	paintStart->y += 12 + 4;
@@ -212,24 +212,23 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 							repaintConsoleOnly = 1;
 						}
 					} else if (userInput[0] == 'r' && userInput[1] == 'n') { //Rename file
-						char srcName [MAX_PATH];
+						char srcFile [MAX_PATH];
 						char newName [MAX_PATH];
-						int srcNameLen;
-						int newNameLen;
-						int i;
-						for(i = 2; i < userInputCarat - 1; i++) {
-							if(userInput[i] == '/' && userInput[i + 1] =='\\') {
-								srcNameLen = i - 3;
-								newNameLen = userInputCarat - (srcNameLen + 5);
+						int splitIndex, i, srcNameLen, newNameLen;
+						for(i = 2; i < userInputCarat; i++) {
+							if(userInput[i] == '.' && userInput[i + 1] == '.') {
+								splitIndex = i;
 								break;
 							}
 						}
-						memcpy(&srcName[0], &userInput[3], srcNameLen);
-						memcpy(&newName[0], &userInput[5 + srcNameLen], newNameLen);
-						printf("src "); printf(&srcName[0]); printf("\n");
-						printf("newName "); printf(&newName[0]); printf("\n");
+						srcNameLen = splitIndex - 3;
+						newNameLen = (userInputCarat) - (splitIndex + 2);
+						memset(&srcFile[0], 0, MAX_PATH);
+						memset(&newName[0], 0, MAX_PATH);
+						memcpy(&srcFile[0], &userInput[3], srcNameLen);
+						memcpy(&newName[0], &userInput[splitIndex + 2], newNameLen);
 
-						if(MoveFile(&srcName[0], &newName[0])) {
+						if(MoveFile(&srcFile[0], &newName[0])) {
 							CacheDirContents();
 						} else {
 							PushMessageToConsole("could not rename");
@@ -357,8 +356,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 	return 0;
 }
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
-{
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 	WNDCLASSEX wc;
 	MSG msg;
 
