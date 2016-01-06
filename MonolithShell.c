@@ -13,6 +13,9 @@ HWND hwnd;
 #define currentPathMaxLen 1024
 #define userInputMaxLen 256
 #define MAX_CONSOLE_LINES 4
+#define OVERVIEW_MODE 1
+#define FILE_MGMT_MODE 2
+#define PROCESS_MGMT_MODE 3
 
 typedef struct StringList{
 	unsigned char count;
@@ -25,44 +28,28 @@ typedef struct PixelCoords{
 	int y;
 }PixelCoords;
 
-StringList dirsList;
-StringList filesList;
+//view mode
+char mode;
 
-int currentPathLen = 0;
-char currentPathStr[currentPathMaxLen];
+//repaint rects
+RECT consoleRect;
+RECT wholeScreen;
 
+//General console stuff
 unsigned char userInputCarat = 0;
 char userInput[userInputMaxLen];
 char pastConsoleLines[MAX_CONSOLE_LINES][userInputMaxLen];
 char repaintConsoleOnly;
 int consolePaintStart_y;
 
-RECT consoleRect;
-RECT wholeScreen;
+//File management stuff
+int currentPathLen = 0;
+char currentPathStr[currentPathMaxLen];
+StringList dirsList;
+StringList filesList;
 
-//This was my general overview screen draw code
-// {
-// 	int text_x = 12;
-// 	int text_y = 12;
-// 	char monitorX[4];
-// 	char monitorY[4];
-// 	sprintf(monitorX, "%lu", screenX);
-// 	sprintf(monitorY, "%lu", screenY);
-// 	const char bufBtwnLines = 4;
+//Process management stuff
 
-// 	SetTextColor(hdc, fontColor);
-// 	SelectObject(hdc, mainFont);
-// 	TextOut(hdc, text_x, text_y, "Welcome to MonolithShell v0.1", 24);
-// 	text_y += 12 * 2 + bufBtwnLines;
-
-// 	SelectObject(hdc, boldFont);
-// 	TextOut(hdc, text_x, text_y, "SYSTEM", 6);
-
-// 	SelectObject(hdc, linePen);
-// 	MoveToEx(hdc, text_x + 6 * 12, text_y + 12, NULL);
-// 	LineTo(hdc, screenX - 6, text_y + 12);
-// 	text_y += 12 + bufBtwnLines;
-// }
 
 void DisplayError( const char* message ) {
 	MessageBox( NULL, message, "Err", MB_ICONEXCLAMATION | MB_OK );
@@ -131,6 +118,197 @@ void DrawTextList( HDC* hdc, const char* text, const char* lineLengths, const ch
 	}
 }
 
+void ProcessCommand_FileMgmt() {
+	if( userInput[0] == 'c' && userInput[1] == 'd' ) { //Change directory
+		char newDir [MAX_PATH];
+		char* catPath = &userInput[3];
+		int newPathLen;
+		strcpy( &newDir[0], &currentPathStr[0] );
+
+		if( userInput[3] == '.' && userInput[4] == '.' ) {
+			int i = currentPathLen;
+			newPathLen = currentPathLen;
+			while( newDir[i] != '\\' ) {
+				newDir[i] = 0;
+				newPathLen--;
+				i--;
+			}
+			newDir[i] = 0;
+		} else {
+            //build new dir string
+			strcat( &newDir[currentPathLen], "\\" );
+			strcat( &newDir[currentPathLen + 1], catPath );
+			newPathLen = currentPathLen + 1 + userInputCarat - 3;
+		}
+
+	    //attempt change
+		if( SetCurrentDirectory( &newDir[0] ) ) {  
+		    //update state if change succeeded
+			memset( currentPathStr, 0, currentPathMaxLen );
+			memcpy( currentPathStr, newDir, newPathLen );
+			currentPathLen = newPathLen;
+			CacheDirContents();
+			PushMessageToConsole(&userInput[0]);
+			memset(userInput, 0, userInputCarat);
+			userInputCarat = 0;
+		} else {
+			char error [MAX_PATH];
+			strcpy(&error[0], "could not find directory: ");
+			strcat(&error[25], &newDir[0]);
+			PushMessageToConsole(&error[0]);
+			InvalidateRect( hwnd, &consoleRect, FALSE );
+			repaintConsoleOnly = 1;
+			PushMessageToConsole(&userInput[0]);
+			memset(userInput, 0, userInputCarat);
+			userInputCarat = 0;
+		}
+	} else if (userInput[0] == 'r' && userInput[1] == 'n') { //Rename file
+		char srcTypeSuffix [8];
+		char newNameSuffix [8];
+		char srcFile [MAX_PATH];
+		char newName [MAX_PATH];
+		int splitIndex, i, srcNameLen, newNameLen;
+		for(i = 2; i < userInputCarat; i++) { //figure out where in user input are the two file names
+			if(userInput[i] == '-' && userInput[i + 1] == '>') {
+				splitIndex = i;
+				break;
+			}
+		}
+		srcNameLen = splitIndex - 3;
+		newNameLen = userInputCarat - (splitIndex + 2);
+		memset(&srcFile[0], 0, MAX_PATH);
+		memset(&newName[0], 0, MAX_PATH);
+		memcpy(&srcFile[0], &userInput[3], srcNameLen);
+		memcpy(&newName[0], &userInput[splitIndex + 2], newNameLen);
+
+		memset(&srcTypeSuffix[0], 0, 8);
+		memset(&newNameSuffix[0], 0, 8);
+		for(i = srcNameLen; i > 0; i--) {
+			if(srcFile[i] == '.') {
+				memcpy(&srcTypeSuffix[0], &srcFile[i], srcNameLen - i);
+				break;
+			}
+		}
+		for(i = newNameLen; i > 0; i--) {
+			if(newName[i] == '.') {
+				memcpy(&newNameSuffix[0], &newName[i], newNameLen - i);
+				break;
+			}
+		}
+		if(newNameSuffix[0] == 0 && srcTypeSuffix[0] != 0) {
+		    strcat(newName, srcTypeSuffix); //if no suffix given in new name, use old suffix
+		}
+
+		if(MoveFile(&srcFile[0], &newName[0])) {
+			CacheDirContents();
+			PushMessageToConsole(&userInput[0]);
+			memset(userInput, 0, userInputCarat);
+			userInputCarat = 0;
+		} else {
+			PushMessageToConsole(&userInput[0]);
+			memset(userInput, 0, userInputCarat);
+			userInputCarat = 0;
+			PushMessageToConsole("could not rename");
+			InvalidateRect( hwnd, &consoleRect, FALSE );
+			repaintConsoleOnly = 1;
+		}
+	} else if (userInput[0] == 's' && userInput[1] == 'w') { //switch to overview
+		mode = OVERVIEW_MODE;
+		InvalidateRect(hwnd, &wholeScreen, FALSE);
+		PushMessageToConsole(&userInput[0]);
+		memset(userInput, 0, userInputCarat);
+		userInputCarat = 0;
+	}
+}
+
+void ProcessCommand_Overview() {
+	if(userInput[0] == 's' && userInput[1] == 'w') {
+		mode = FILE_MGMT_MODE;
+		PushMessageToConsole(&userInput[0]);
+		memset(userInput, 0, userInputCarat);
+		userInputCarat = 0;
+		InvalidateRect(hwnd, &wholeScreen, FALSE);
+	}
+}
+
+void Paint_FileMgmtMode(HDC hdc) {
+	SelectObject( hdc, mainFont );
+	SetTextColor( hdc, fontColor );
+
+	PixelCoords paintStart;
+	paintStart.x = 12;
+	paintStart.y = 12;
+
+	//draw basic info about current directory
+	SelectObject( hdc, boldFont );
+	TextOut( hdc, paintStart.x, paintStart.y, "Current Directory:", 18 );
+	paintStart.x += 18 * 12 + 4;
+	SelectObject( hdc, mainFont );
+	TextOut( hdc, paintStart.x, paintStart.y, currentPathStr, currentPathLen + 1 );
+	paintStart.x = 12;
+	paintStart.y += 12 + 4;
+
+    //underline
+	SelectObject( hdc, linePen );
+	MoveToEx( hdc, paintStart.x, paintStart.y, NULL );
+	LineTo( hdc, screenX - 12, paintStart.y );
+	SelectObject( hdc, mainFont );
+	paintStart.y += 14;
+
+	paintStart.y += 12; //a little top breathing room
+    //Draw titles for Sub Directories and Files lists
+	SelectObject(hdc, boldFont);
+	TextOut(hdc, paintStart.x, paintStart.y, "Sub Directories", 15);
+	paintStart.x = (screenX / 2) + 12;
+	TextOut(hdc, paintStart.x, paintStart.y, "Files", 5);
+	paintStart.x = 12;
+	paintStart.y += 16;
+
+    //underline
+	SelectObject( hdc, linePen );
+	MoveToEx( hdc, paintStart.x, paintStart.y, NULL );
+	LineTo( hdc, screenX - 12, paintStart.y );
+	SelectObject( hdc, mainFont );
+	paintStart.y += 8;
+
+	//Draw dividing line btwn lists
+	SelectObject( hdc, linePen );
+	MoveToEx( hdc, screenX / 2, paintStart.y, NULL );
+	LineTo( hdc, screenX / 2, consolePaintStart_y - 12 - 8 );
+	SelectObject( hdc, mainFont );
+
+	//draw sub directories list
+	int paintStartY_pos = paintStart.y; //save paintstart y position
+	DrawTextList(&hdc, &dirsList.buffer[0], &dirsList.strlens[0], dirsList.count, consolePaintStart_y - 18 -16, &paintStart);
+	paintStart.y = paintStartY_pos; //reset paintstart.y's carry
+	//draw file names list
+	paintStart.x = (screenX / 2) + 10; //move drawing to that side
+	DrawTextList(&hdc, &filesList.buffer[0], &filesList.strlens[0], filesList.count, consolePaintStart_y - 18 - 16, &paintStart);
+}
+
+void Paint_Overview(HDC hdc){
+	int text_x = 12;
+	int text_y = 12;
+	char monitorX[4];
+	char monitorY[4];
+	sprintf(monitorX, "%lu", screenX);
+	sprintf(monitorY, "%lu", screenY);
+	const char bufBtwnLines = 4;
+
+	SetTextColor(hdc, fontColor);
+	SelectObject(hdc, mainFont);
+	TextOut(hdc, text_x, text_y, "Welcome to MonolithShell v0.1", 24);
+	text_y += 12 * 2 + bufBtwnLines;
+
+	SelectObject(hdc, boldFont);
+	TextOut(hdc, text_x, text_y, "SYSTEM", 6);
+
+	SelectObject(hdc, linePen);
+	MoveToEx(hdc, text_x + 6 * 12, text_y + 12, NULL);
+	LineTo(hdc, screenX - 6, text_y + 12);
+	text_y += 12 + bufBtwnLines;
+}
+
 LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 
 	switch( msg ) {
@@ -142,8 +320,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 		PostQuitMessage( 0 );
 		break;
 
-		case WM_CHAR:
-		{
+		case WM_CHAR: {
 			char keypress;
 
 			if(userInputCarat >= 254) {
@@ -166,102 +343,14 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 				case 13:
 				{   //enter
 					//process input
-					if( userInput[0] == 'c' && userInput[1] == 'd' ) { //Change directory
-						char newDir [MAX_PATH];
-						char* catPath = &userInput[3];
-						int newPathLen;
-						strcpy( &newDir[0], &currentPathStr[0] );
-
-						if( userInput[3] == '.' && userInput[4] == '.' ) {
-							int i = currentPathLen;
-							newPathLen = currentPathLen;
-							while( newDir[i] != '\\' ) {
-								newDir[i] = 0;
-								newPathLen--;
-								i--;
-							}
-							newDir[i] = 0;
-						} else {
-	                        //build new dir string
-							strcat( &newDir[currentPathLen], "\\" );
-							strcat( &newDir[currentPathLen + 1], catPath );
-							newPathLen = currentPathLen + 1 + userInputCarat - 3;
-						}
-
-	                    //attempt change
-						if( SetCurrentDirectory( &newDir[0] ) ) {  
-							//update state if change succeeded
-							memset( currentPathStr, 0, currentPathMaxLen );
-							memcpy( currentPathStr, newDir, newPathLen );
-							currentPathLen = newPathLen;
-							CacheDirContents();
-							PushMessageToConsole(&userInput[0]);
-							memset(userInput, 0, userInputCarat);
-							userInputCarat = 0;
-						}
-						else {
-							char error [MAX_PATH];
-							strcpy(&error[0], "could not find directory: ");
-							strcat(&error[25], &newDir[0]);
-							PushMessageToConsole(&error[0]);
-							InvalidateRect( hwnd, &consoleRect, FALSE );
-							repaintConsoleOnly = 1;
-							PushMessageToConsole(&userInput[0]);
-							memset(userInput, 0, userInputCarat);
-							userInputCarat = 0;
-						}
-					} else if (userInput[0] == 'r' && userInput[1] == 'n') { //Rename file
-						char srcTypeSuffix [8];
-						char newNameSuffix [8];
-						char srcFile [MAX_PATH];
-						char newName [MAX_PATH];
-						int splitIndex, i, srcNameLen, newNameLen;
-						for(i = 2; i < userInputCarat; i++) { //figure out where in user input are the two file names
-							if(userInput[i] == '-' && userInput[i + 1] == '>') {
-								splitIndex = i;
-								break;
-							}
-						}
-						srcNameLen = splitIndex - 3;
-						newNameLen = userInputCarat - (splitIndex + 2);
-						memset(&srcFile[0], 0, MAX_PATH);
-						memset(&newName[0], 0, MAX_PATH);
-						memcpy(&srcFile[0], &userInput[3], srcNameLen);
-						memcpy(&newName[0], &userInput[splitIndex + 2], newNameLen);
-
-						memset(&srcTypeSuffix[0], 0, 8);
-						memset(&newNameSuffix[0], 0, 8);
-						for(i = srcNameLen; i > 0; i--) {
-							if(srcFile[i] == '.') {
-								memcpy(&srcTypeSuffix[0], &srcFile[i], srcNameLen - i);
-								break;
-							}
-						}
-						for(i = newNameLen; i > 0; i--) {
-							if(newName[i] == '.') {
-								memcpy(&newNameSuffix[0], &newName[i], newNameLen - i);
-								break;
-							}
-						}
-						if(newNameSuffix[0] == 0) {
-							strcat(newName, srcTypeSuffix);
-						}
-
-						if(MoveFile(&srcFile[0], &newName[0])) {
-							CacheDirContents();
-							PushMessageToConsole(&userInput[0]);
-							memset(userInput, 0, userInputCarat);
-							userInputCarat = 0;
-						} else {
-							PushMessageToConsole(&userInput[0]);
-							memset(userInput, 0, userInputCarat);
-							userInputCarat = 0;
-							PushMessageToConsole("could not rename");
-							InvalidateRect( hwnd, &consoleRect, FALSE );
-							repaintConsoleOnly = 1;
-						}
+					switch(mode) {
+						case OVERVIEW_MODE:
+						ProcessCommand_Overview();
+						break;
+						case FILE_MGMT_MODE:
+						ProcessCommand_FileMgmt();
+						break;
 					}
-
 					break;
 				}
 				default:
@@ -284,83 +373,37 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 			oldFont = (HFONT)SelectObject( hdc, bgBrush );
 			SetBkColor( hdc, bgColor );
 			Rectangle( hdc, 0, 0, screenX, screenY );
+			if(repaintConsoleOnly) goto paintconsole;
 
-	        //File viewing/mgmt mode painting
-			{
-				SelectObject( hdc, mainFont );
-				SetTextColor( hdc, fontColor );
-				if(repaintConsoleOnly) goto DrawConsoleLabel;
-				PixelCoords paintStart;
-				paintStart.x = 12;
-				paintStart.y = 12;
+	        switch(mode) {
+	        	case FILE_MGMT_MODE:
+	        	Paint_FileMgmtMode(hdc);
+	        	break;
+	        	case OVERVIEW_MODE:
+	        	Paint_Overview(hdc);
+	        	break;
+	        }
 
-	            //draw basic info about current directory
-	            SelectObject( hdc, boldFont );
-				TextOut( hdc, paintStart.x, paintStart.y, "Current Directory:", 18 );
-				paintStart.x += 18 * 12 + 4;
-				SelectObject( hdc, mainFont );
-				TextOut( hdc, paintStart.x, paintStart.y, currentPathStr, currentPathLen + 1 );
-				paintStart.x = 12;
-				paintStart.y += 12 + 4;
+	        paintconsole:
 
-	            //underline
-				SelectObject( hdc, linePen );
-				MoveToEx( hdc, paintStart.x, paintStart.y, NULL );
-				LineTo( hdc, screenX - 12, paintStart.y );
-				SelectObject( hdc, mainFont );
-				paintStart.y += 14;
+	        SelectObject(hdc, boldFont);
+	        SetTextColor(hdc, fontColor);
+	        PixelCoords paintStart;
+	        paintStart.x = 12; 
+	        paintStart.y = consolePaintStart_y;
+	        DrawUnderlinedTitle(&hdc, "Console", 7, &paintStart);
+	        SelectObject(hdc, mainFont);
+	        TextOut(hdc, paintStart.x, paintStart.y, userInput, userInputCarat);
+	        paintStart.y += 16;
 
-				paintStart.y += 12; //a little top breathing room
-	            //Draw titles for Sub Directories and Files lists
-				SelectObject(hdc, boldFont);
-				TextOut(hdc, paintStart.x, paintStart.y, "Sub Directories", 15);
-				paintStart.x = (screenX / 2) + 12;
-				TextOut(hdc, paintStart.x, paintStart.y, "Files", 5);
-				paintStart.x = 12;
-				paintStart.y += 16;
-
-			    //underline
-				SelectObject( hdc, linePen );
-				MoveToEx( hdc, paintStart.x, paintStart.y, NULL );
-				LineTo( hdc, screenX - 12, paintStart.y );
-				SelectObject( hdc, mainFont );
-				paintStart.y += 8;
-
-				//Draw dividing line btwn lists
-				SelectObject( hdc, linePen );
-				MoveToEx( hdc, screenX / 2, paintStart.y, NULL );
-				LineTo( hdc, screenX / 2, consolePaintStart_y - 12 - 8 );
-				SelectObject( hdc, mainFont );
-
-				//draw sub directories list
-				int paintStartY_pos = paintStart.y; //save paintstart y position
-				DrawTextList(&hdc, &dirsList.buffer[0], &dirsList.strlens[0], dirsList.count, consolePaintStart_y - 18 -16, &paintStart);
-				paintStart.y = paintStartY_pos;//reset paintstart.y's carry
-	            //draw file names list
-	            paintStart.x = (screenX / 2) + 10; //move drawing to that side
-				DrawTextList(&hdc, &filesList.buffer[0], &filesList.strlens[0], filesList.count, consolePaintStart_y - 18 - 16, &paintStart);
-
-	            //draw Console and user input
-	            paintStart.x = 12;
-	            paintStart.y = consolePaintStart_y - 18;
-				DrawUnderlinedTitle(&hdc, "Console", 7, &paintStart);
-				DrawConsoleLabel:
-				paintStart.x = 12; 
-				paintStart.y = consolePaintStart_y;
-				TextOut(hdc, paintStart.x, paintStart.y, userInput, userInputCarat);
-				paintStart.y += 16;
-
-				int i;
-				int consoleLineLen;
-				for(i = 0; i < MAX_CONSOLE_LINES; i++) {
-					consoleLineLen = strlen(&pastConsoleLines[i][0]);
-					TextOut(hdc, paintStart.x, paintStart.y, &pastConsoleLines[i][0], consoleLineLen);
-					paintStart.y += 16;
-				}
-
-
-				repaintConsoleOnly = 0;
-			}
+	        int i;
+	        int consoleLineLen;
+	        for(i = 0; i < MAX_CONSOLE_LINES; i++) {
+	        	consoleLineLen = strlen(&pastConsoleLines[i][0]);
+	        	TextOut(hdc, paintStart.x, paintStart.y, &pastConsoleLines[i][0], consoleLineLen);
+	        	paintStart.y += 16;
+	        }
+	        repaintConsoleOnly = 0;
 
 			SelectObject(hdc, oldFont);
 			SetTextColor(hdc, RGB(0,0,0));
@@ -402,6 +445,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	wholeScreen.left = 0;
 	wholeScreen.right = screenX;
 	repaintConsoleOnly = 0;
+	mode = FILE_MGMT_MODE;
 
 	CacheDirContents();
 
