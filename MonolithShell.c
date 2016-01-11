@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <windows.h>
 #include <conio.h>
+#include <psapi.h>
 
 const char g_szClassName[] = "MonolithShell";
 DWORD screenX, screenY;
@@ -9,6 +10,7 @@ HFONT mainFont, boldFont;
 HBRUSH bgBrush;
 HPEN linePen;
 HWND hwnd;
+HINSTANCE myInstance;
 
 #define currentPathMaxLen 1024
 #define userInputMaxLen 256
@@ -18,7 +20,7 @@ HWND hwnd;
 #define PROCESS_MGMT_MODE 3
 
 typedef struct StringList{
-	unsigned char count;
+	unsigned int count;
 	char strlens[64];
 	char buffer[4 * 1024];
 }StringList;
@@ -49,6 +51,7 @@ StringList dirsList;
 StringList filesList;
 
 //Process management stuff
+StringList processList;
 
 
 void DisplayError( const char* message ) {
@@ -90,10 +93,47 @@ void CacheDirContents() {
 			fileTypeHead += fileNameLen;
 		}
 
-	} while( FindNextFile( fileHandle, &data ) );
+		if((fileTypeHead - &filesList.buffer[0]) > 4 * 1024 || ((dirTypeHead - &dirsList.buffer[0]) > 4 * 1024)) break;
+	} while( FindNextFile( fileHandle, &data ) && dirsList.count >= 256 && filesList.count >= 256);
 	FindClose( fileHandle );
 
 	InvalidateRect( hwnd, &wholeScreen, FALSE );
+}
+
+void CacheProcessesList() {
+	HANDLE process;
+	int processes[1024];
+	DWORD processListSize, bytesReturned, processCount;
+	char processName[256];
+	char* processNameTypeHead = &processList.buffer[0];
+	processListSize = sizeof(processes);
+	EnumProcesses(processes, processListSize, &bytesReturned);
+	processCount = bytesReturned / sizeof(int);
+	processList.count = 0;
+
+	unsigned int i;
+	for(i = 0; i < processCount; i++) {
+		memset(&processName[0], 0, 256);
+		process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processes[i]);
+
+		if(process != NULL){
+			DWORD cbNeeded;
+			HMODULE hMod;
+			if(EnumProcessModules(process, hMod, sizeof(HINSTANCE), &cbNeeded)) {
+				GetModuleBaseName(process, NULL, &processName[0], 256);
+				int nameLen = strlen(&processName[0]);
+				strcpy(processNameTypeHead, &processName[0]);
+				processNameTypeHead += nameLen;
+				processList.strlens[processList.count] = nameLen;
+				processList.count++;
+
+				printf(&processName[0]); printf("\n");
+			}
+		}
+
+
+		CloseHandle(process);
+	}
 }
 
 void DrawUnderlinedTitle( const HDC* hdc, const char* text, const int textlen, PixelCoords* paintStart ) {
@@ -309,6 +349,18 @@ void Paint_Overview(HDC hdc){
 	text_y += 12 + bufBtwnLines;
 }
 
+void Paint_ProcessView(HDC hdc) {
+	SelectObject(hdc, mainFont);
+	SetTextColor(hdc, fontColor);
+
+	PixelCoords paintStart;
+	paintStart.x = 12;
+	paintStart.y = 12;
+
+	TextOut(hdc, paintStart.x, paintStart.y, "Processes", 9);
+	DrawTextList(&hdc, &processList.buffer[0], &processList.strlens[0], processList.count, consolePaintStart_y - 18 - 16, &paintStart);
+}
+
 LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 
 	switch( msg ) {
@@ -347,8 +399,13 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 						case OVERVIEW_MODE:
 						ProcessCommand_Overview();
 						break;
+
 						case FILE_MGMT_MODE:
 						ProcessCommand_FileMgmt();
+						break;
+
+						case PROCESS_MGMT_MODE:
+
 						break;
 					}
 					break;
@@ -379,8 +436,13 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 	        	case FILE_MGMT_MODE:
 	        	Paint_FileMgmtMode(hdc);
 	        	break;
+
 	        	case OVERVIEW_MODE:
 	        	Paint_Overview(hdc);
+	        	break;
+
+	        	case PROCESS_MGMT_MODE:
+	        	Paint_ProcessView(hdc);
 	        	break;
 	        }
 
@@ -420,12 +482,14 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam ) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+	myInstance = hInstance;
 	WNDCLASSEX wc;
 	MSG msg;
 
 	//Initialize my Globals
 	memset(userInput, 0, userInputMaxLen);
 	memset(pastConsoleLines, 0, MAX_CONSOLE_LINES * userInputMaxLen);
+	memset(&processList.buffer[0], 0, 4 * 1024);
 	screenX = GetSystemMetrics(SM_CXSCREEN);
 	screenY = GetSystemMetrics(SM_CYSCREEN);
 	currentPathLen = GetCurrentDirectory(currentPathMaxLen, &currentPathStr[0]);
@@ -445,9 +509,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	wholeScreen.left = 0;
 	wholeScreen.right = screenX;
 	repaintConsoleOnly = 0;
-	mode = FILE_MGMT_MODE;
+	mode = PROCESS_MGMT_MODE;
 
 	CacheDirContents();
+	CacheProcessesList();
 
 	wc.cbSize = sizeof(WNDCLASSEX);
 	wc.style = 0;

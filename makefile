@@ -10,7 +10,7 @@ CFLAGS = -Wall -g
 LFLAGS = -LLibs
 
 #Librarys to Use
-LIBS = -lGdi32 
+LIBS = -lGdi32 -lPsapi
 
 #source files
 SRCS = MonolithShell.c
